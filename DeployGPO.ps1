@@ -30,11 +30,17 @@
 
 .EXAMPLE
    This example deploys the GPO to the contoso.com domain and copies the onboarding script EnableAzureArc.ps1
-   to the remote share AzureArcOnBoard in the Server.contoso.com server
+   to the remote share AzureArcOnBoard in the Server.contoso.com server using a service principal secret
 
    .\DeployGPO.ps1 -DomainFQDN contoso.com -ReportServerFQDN Server.contoso.com -ArcRemoteShare AzureArcOnBoard -ServicePrincipalSecret $ServicePrincipalSecret 
        -ServicePrincipalClientId $ServicePrincipalClientId -SubscriptionId $SubscriptionId --ResourceGroup $ResourceGroup -Location $Location -TenantId $TenantId 
        [-AgentProxy $AgentProxy]
+
+   This example does the same using a service principal certificate
+
+     .\DeployGPO.ps1 -DomainFQDN contoso.com -ReportServerFQDN Server.contoso.com -ArcRemoteShare AzureArcOnBoard -ServicePrincipalCert $ServicePrincipalCert 
+    -ServicePrincipalClientId $ServicePrincipalClientId -SubscriptionId $SubscriptionId --ResourceGroup $ResourceGroup -Location $Location -TenantId $TenantId 
+    [-AgentProxy $AgentProxy]
 
 #>
 
@@ -43,12 +49,12 @@ Param (
     [System.String]$DomainFQDN,
     [Parameter(Mandatory = $True)]
     [System.String]$ReportServerFQDN, # "server.contoso.com"
-    
     [Parameter(Mandatory = $True)]
     [System.String]$ServicePrincipalClientId,
-    [Parameter(Mandatory = $True)]
+    [Parameter(Mandatory = $False)]
     [System.String]$ServicePrincipalSecret,
-    
+    [Parameter(Mandatory = $False)]
+    [System.String]$ServicePrincipalCertpath,
     [Parameter(Mandatory = $True)]
     [System.String]$SubscriptionId,
     [Parameter(Mandatory = $True)]
@@ -71,6 +77,19 @@ Param (
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $PSBoundParameters.ContainsKey("ServicePrincipalSecret") -and -not $PSBoundParameters.ContainsKey("ServicePrincipalCertpath")) {
+    Write-Host "At least one of the parameters (ServicePrincipalSecret or ServicePrincipalCertpath) must have a value." -ForegroundColor Red ; exit
+}
+
+if ($ServicePrincipalSecret) {
+    $SPsecretused = $True
+    Write-Host "ServicePrincipal Secret is used!" -ForegroundColor Green
+}
+else {
+    $SPsecretused = $False
+    Write-Host "ServicePrincipal Certificate is used!" -ForegroundColor Green
+}
 
 $GPOName = "[MSFT] Azure Arc Servers Onboarding"
 
@@ -221,14 +240,21 @@ try {
 catch { Write-Host "The Group Policy could not be created:`n$(($_.Exception).Message)" -ForegroundColor Red ; break }
 
 
-# Encrypting the ServicePrincipalSecret to be decrypted only by the Domain Controllers and the Domain Computers security groups
+# Encrypting the ServicePrincipalSecret to be decrypted only by the Domain Controllers and the Domain Computers security groups. If no ServicePrincipleSecret is used, this section is skipped.
+if (!$SPsecretused) {
+    Write-Host "`nNo ServicePrincipleSecret used ...Skipping the encryption of the ServicePrincipalSecret" -ForegroundColor Green
+} 
+else {
+    Write-Host "`nEncrypting the ServicePrincipalSecret  ..." -ForegroundColor Green
 
-$DomainComputersSID = "SID=" + $DomainComputersSID
-$DomainControllersSID = "SID=" + $DomainControllersSID
-$descriptor = @($DomainComputersSID, $DomainControllersSID) -join " OR "
+    $DomainComputersSID = "SID=" + $DomainComputersSID
+    $DomainControllersSID = "SID=" + $DomainControllersSID
+    $descriptor = @($DomainComputersSID, $DomainControllersSID) -join " OR "
 
-Import-Module $PSScriptRoot\AzureArcDeployment.psm1
-$encryptedSecret = [DpapiNgUtil]::ProtectBase64($descriptor, $ServicePrincipalSecret)
+    Import-Module $PSScriptRoot\AzureArcDeployment.psm1
+    $encryptedSecret = [DpapiNgUtil]::ProtectBase64($descriptor, $ServicePrincipalSecret)
+    $encryptedSecret | Out-File -FilePath (Join-Path -Path $AzureArcDeployPath -ChildPath "encryptedServicePrincipalSecret") -Force
+}
 
 #Copying Script to Source files Subfolder path
 Write-Host "`nCopying Script EnableAzureArc.ps1 to path $AzureArcDeployPath ..." -ForegroundColor Green
@@ -258,7 +284,7 @@ try {
         Write-Host "Install file `'AzureConnectedMachineAgent.msi`' successfully copied to $AzureArcDeployPath" -ForegroundColor Green
     }
 
-    $infoTable = @{"ServicePrincipalClientId"="$ServicePrincipalClientId";"SubscriptionId"="$SubscriptionId";"ResourceGroup"="$ResourceGroup";"Location"="$Location";"TenantId"="$TenantId";"PrivateLinkScopeId"="$PrivateLinkScopeId"; "Tags"=$tags}
+    $infoTable = @{"ServicePrincipalClientId" = "$ServicePrincipalClientId"; "Certpath" = "$ServicePrincipalCertpath"; "SubscriptionId" = "$SubscriptionId"; "ResourceGroup" = "$ResourceGroup"; "Location" = "$Location"; "TenantId" = "$TenantId"; "PrivateLinkScopeId" = "$PrivateLinkScopeId"; "Tags" = $tags }
     $infoTableJSON = $infoTable | ConvertTo-Json -Compress
     
     if (Test-Path "$AzureArcDeployPath\ArcInfo.json" -ErrorAction SilentlyContinue) {
@@ -268,9 +294,6 @@ try {
         $infoTableJSON | Out-File -FilePath "$AzureArcDeployPath\ArcInfo.json"
         Write-Host "JSON file with onboarding info `'ArcInfo.json`' successfully copied to $AzureArcDeployPath" -ForegroundColor Green
     }
-
-    $encryptedSecret | Out-File -FilePath (Join-Path -Path $AzureArcDeployPath -ChildPath "encryptedServicePrincipalSecret") -Force
-
 }
 catch { Write-Host "Onboarding script could not be copied:`n$(($_.Exception).Message)" -ForegroundColor Red ; break }
 

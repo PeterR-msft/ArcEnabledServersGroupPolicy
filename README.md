@@ -1,5 +1,5 @@
 # Arc Deployment by GPO
-Arc GPO Deployment project contains the necessary files to onboard Non Azure machines to Azure Arc automatically, using a GPO
+Arc GPO Deployment project contains the necessary files to onboard Non Azure machines to Azure Arc automatically, using a GPO, either using a Service principal with a secret or a certificate.
 
 More information can be found [here](https://learn.microsoft.com/en-us/azure/azure-arc/servers/onboard-group-policy-service-principal-encryption)
 
@@ -17,6 +17,8 @@ More information can be found [here](https://learn.microsoft.com/en-us/azure/azu
 ## Prerequisites
 
 - Create a *Service Principal* and give it Azure Arc onbarding permissions, following this article: [Create a Service Principal for onboarding at scale](https://docs.microsoft.com/en-us/azure/azure-arc/servers/onboard-service-principal#create-a-service-principal-for-onboarding-at-scale)
+
+- Decide if the *Service Principal* should use a client secret or a certificate. The secret is mandatory at the creation of the Service Principal. You can add a certificate afterwards and remove the secret again, if you wish not to use it. The certificate file (PCKS #12 (.PFX) files and ASCII-encoded files (such as .PEM) are supported) should be copied to the *AzureArcOnboard* share that will be created in the next steps. More information to the certificate based option can be found in this article: [CLI Reference azcmagent connect usind a service principal with certificate](https://learn.microsoft.com/en-us/azure/azure-arc/servers/azcmagent-connect#service-principal-with-certificate)
   
 - Register *Microsoft.HybridCompute*, *Microsoft.GuestConfiguration* and *Microsoft.HybridConnectivity* as resource providers in your subscription, following this article: [Register Resource Provider](https://docs.microsoft.com/en-us/azure/azure-resource-manager/management/resource-providers-and-types#register-resource-provider)
 
@@ -35,9 +37,15 @@ More information can be found [here](https://learn.microsoft.com/en-us/azure/azu
 
 - Copy the project structure to a local folder of a Domain Controller.
 
-- Execute the deployment script *DeployGPO.ps1*, with the following syntax:
-  
+- If you want the on-boarding to happen with the the *Service Principal Secret*, execute the deployment script *DeployGPO.ps1*, with the following syntax: 
+
         .\DeployGPO.ps1 -DomainFQDN contoso.com -ReportServerFQDN Server.contoso.com -ArcRemoteShare AzureArcOnBoard -ServicePrincipalSecret $ServicePrincipalSecret 
+       -ServicePrincipalClientId $ServicePrincipalClientId -SubscriptionId $SubscriptionId --ResourceGroup $ResourceGroup -Location $Location -TenantId $TenantId 
+       [-AgentProxy $AgentProxy]
+
+  If you would like to use a *Service Principal Certificate* for on-boarding, execute the same script with the following syntax instead:
+  
+        .\DeployGPO.ps1 -DomainFQDN contoso.com -ReportServerFQDN Server.contoso.com -ArcRemoteShare AzureArcOnBoard -ServicePrincipalCert $ServicePrincipalCert 
        -ServicePrincipalClientId $ServicePrincipalClientId -SubscriptionId $SubscriptionId --ResourceGroup $ResourceGroup -Location $Location -TenantId $TenantId 
        [-AgentProxy $AgentProxy]
 
@@ -48,8 +56,10 @@ More information can be found [here](https://learn.microsoft.com/en-us/azure/azu
     - *ReportServerFQDN* is the Fully Qualified Domain Name of the host where the network share resides.
     
     - *ArcRemoteShare* is the name of the network share you've created
-    
+  
     - *ServicePrincipalSecret* is the secret from the Service Principal created previously.
+
+    - *ServicePrincipalCert* is the path to the certificate (*.pem file) from the Service Principal created previously. (e.g. "\\\dc.contoso.local\AzureArcOnBoard\cert.pem")
     
     - *ServicePrincipalClientId* is the client id from the Service Principal created previously
 

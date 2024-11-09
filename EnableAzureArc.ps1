@@ -82,12 +82,13 @@ $subscriptionid = $arcInfo.SubscriptionId
 $ResourceGroup = $arcInfo.ResourceGroup
 $location = $arcInfo.Location
 $PrivateLinkScopeId = $arcInfo.PrivateLinkScopeId
+$certpath = $arcInfo.Certpath
 
 $tags = @{ # Tags to be added to the Arc servers
-    DeployedBy  = "GPO"
+    DeployedBy = "GPO"
 }
 
-if($arcInfo.Tags){
+if ($arcInfo.Tags) {
     $arcInfo.Tags.psobject.properties | Foreach { $tags[$_.Name] = $_.Value }
 }
 
@@ -284,7 +285,10 @@ Function Connect-ArcAgent {
 
     $FinalTag = ($tags.GetEnumerator() | ForEach-Object -Process { "$($_.key)" + "=" + "'$($_.value)'" }) -join ","
 
-    $sps = Get-ServicePrincipalSecret
+    if (!$certpath) {
+        Write-Log -msg "Service Principal Secret is used. Trying to fetch service principal secret ..." -msgtype INFO
+        $sps = Get-ServicePrincipalSecret
+    }
     
     # if agent proxy is specified
     if ($AgentProxy) {
@@ -296,10 +300,20 @@ Function Connect-ArcAgent {
         if ($AgentProxy -ne "") {
             & "$env:ProgramW6432\AzureConnectedMachineAgent\azcmagent.exe" config set proxy.bypass "Arc" #Bypass proxy for Arc services (his.arc.azure.com, guestconfiguration.azure.com, guestnotificationservice.azure.com, servicebus.windows.net)
         }
-        $ConnectionOutput = & "$env:ProgramW6432\AzureConnectedMachineAgent\azcmagent.exe" connect --resource-name $env:computername --service-principal-id $servicePrincipalClientId --service-principal-secret $sps --resource-group $ResourceGroup --tenant-id $tenantid --location $location --subscription-id $subscriptionid --cloud AzureCloud --tags $FinalTag --private-link-scope $PrivateLinkScopeId --correlation-id "478b97c2-9310-465a-87df-f21e66c2b248"
+        if ($certpath) {
+            $ConnectionOutput = & "$env:ProgramW6432\AzureConnectedMachineAgent\azcmagent.exe" connect --resource-name $env:computername --service-principal-id $servicePrincipalClientId --service-principal-cert $certpath --resource-group $ResourceGroup --tenant-id $tenantid --location $location --subscription-id $subscriptionid --cloud AzureCloud --tags $FinalTag --private-link-scope $PrivateLinkScopeId --correlation-id "478b97c2-9310-465a-87df-f21e66c2b248"
+        }
+        else {
+            $ConnectionOutput = & "$env:ProgramW6432\AzureConnectedMachineAgent\azcmagent.exe" connect --resource-name $env:computername --service-principal-id $servicePrincipalClientId --service-principal-secret $sps --resource-group $ResourceGroup --tenant-id $tenantid --location $location --subscription-id $subscriptionid --cloud AzureCloud --tags $FinalTag --private-link-scope $PrivateLinkScopeId --correlation-id "478b97c2-9310-465a-87df-f21e66c2b248"
+        }
     }
     else {
-        $ConnectionOutput = & "$env:ProgramW6432\AzureConnectedMachineAgent\azcmagent.exe" connect --resource-name $env:computername --service-principal-id $servicePrincipalClientId --service-principal-secret $sps --resource-group $ResourceGroup --tenant-id $tenantid --location $location --subscription-id $subscriptionid --cloud AzureCloud --tags $FinalTag --correlation-id "478b97c2-9310-465a-87df-f21e66c2b248"
+        if ($certpath) {
+            $ConnectionOutput = & "$env:ProgramW6432\AzureConnectedMachineAgent\azcmagent.exe" connect --resource-name $env:computername --service-principal-id $servicePrincipalClientId --service-principal-cert $certpath --resource-group $ResourceGroup --tenant-id $tenantid --location $location --subscription-id $subscriptionid --cloud AzureCloud --tags $FinalTag --correlation-id "478b97c2-9310-465a-87df-f21e66c2b248"
+        }
+        else {
+            $ConnectionOutput = & "$env:ProgramW6432\AzureConnectedMachineAgent\azcmagent.exe" connect --resource-name $env:computername --service-principal-id $servicePrincipalClientId --service-principal-secret $sps --resource-group $ResourceGroup --tenant-id $tenantid --location $location --subscription-id $subscriptionid --cloud AzureCloud --tags $FinalTag --correlation-id "478b97c2-9310-465a-87df-f21e66c2b248"
+        }
     }
 
     if ($LastExitCode -eq 0) {
